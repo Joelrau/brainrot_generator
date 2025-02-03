@@ -1,0 +1,8 @@
+requests
+moviepy==1.0.3
+pillow==11.1.0
+opencv-python
+elevenlabs
+numpy
+imageio[ffmpeg]
+better_profanity
