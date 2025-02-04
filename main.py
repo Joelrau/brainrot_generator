@@ -104,68 +104,53 @@ def pick_random_video(folder: pathlib.Path) -> pathlib.Path:
         exit(1)
     return random.choice(video_files)
 
-from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
-import pathlib
-
-def generate_subtitle_timestamps(text: str, audio_duration: float, segment_duration: float = 2):
-    """ Generate subtitle text with exact timestamps (manual or ASR). """
-    if not text.strip():  # Handle empty input text
+def generate_subtitle_timestamps(text: str, audio_duration: float):
+    """ Generate subtitles that display a maximum of two words at a time. """
+    words = text.split()
+    if not words:
         print("Error: Input text is empty.")
         return []
     
-    words = text.split()
-    num_segments = max(1, int(audio_duration // segment_duration))  # Avoid zero segments
-    
-    segment_length = max(1, len(words) // num_segments)  # Avoid dividing by zero
-    
     subtitle_parts = []
-    for i in range(num_segments):
-        start_idx = i * segment_length
-        end_idx = (i + 1) * segment_length if (i + 1) * segment_length < len(words) else len(words)
-        part = ' '.join(words[start_idx:end_idx])
-        start_time = (i * segment_duration)
-        end_time = (i + 1) * segment_duration if (i + 1) * segment_duration < audio_duration else audio_duration
+    word_groups = [words[i:i+2] for i in range(0, len(words), 2)]  # Group words in pairs
+    
+    segment_duration = audio_duration / len(word_groups)  # Evenly distribute timing
+    
+    for i, group in enumerate(word_groups):
+        start_time = i * segment_duration
+        end_time = min((i + 1) * segment_duration, audio_duration)
         subtitle_parts.append({
-            'text': part,
+            'text': ' '.join(group),
             'start_time': start_time,
             'end_time': end_time
         })
     
     return subtitle_parts
 
-def create_video_with_subtitles(audio_file: pathlib.Path, video_file: pathlib.Path, output_file: pathlib.Path, text: str) -> None:
-    """ Combines the generated speech audio with a background video, fills the screen, and adds centered subtitles. """
-    # Load video and audio
+def create_video_with_subtitles(audio_file: pathlib.Path, video_file: pathlib.Path, output_file: pathlib.Path, text: str):
+    """ Combines video and audio, fills the screen, and adds centered subtitles. """
     video = VideoFileClip(str(video_file))
     audio = AudioFileClip(str(audio_file))
-    
-    # Adjust video length to match audio length
+
     video = video.set_duration(audio.duration)
-    
-    # Resize the video to fill the screen (1080x1920), ensuring it covers the area
     target_width, target_height = 1080, 1920
     video = video.resize(height=target_height)
     video = video.crop(x_center=video.size[0] / 2, y_center=video.size[1] / 2, width=target_width, height=target_height)
-    
-    # Generate subtitles with exact start and end times
-    subtitle_parts = generate_subtitle_timestamps(text, audio.duration)
 
-    # Create subtitle clips with accurate timing
+    subtitle_parts = generate_subtitle_timestamps(text, audio.duration)
+    
     subtitle_clips = []
     for subtitle in subtitle_parts:
-        subtitle_clip = TextClip(subtitle['text'], font='Verdana', fontsize=54, color='white', stroke_color='black', stroke_width=1, align='center', size=(video.size[0], video.size[1]), method='caption')
+        subtitle_clip = TextClip(subtitle['text'], font='Verdana', fontsize=100, color='white', 
+                                 stroke_color='black', stroke_width=2, align='center', method='caption',
+                                 size=(video.size[0], None))
         subtitle_clip = subtitle_clip.set_position(('center', 'center')).set_start(subtitle['start_time']).set_duration(subtitle['end_time'] - subtitle['start_time'])
-        subtitle_clip = subtitle_clip.fadein(0.1).fadeout(0.1)  # Add fade-in and fade-out effects
+        subtitle_clip = subtitle_clip.fadein(0.0).fadeout(0.0)  # Smooth transitions
         subtitle_clips.append(subtitle_clip)
 
-    # Combine video with subtitles
-    final_video = CompositeVideoClip([video] + subtitle_clips)
+    final_video = CompositeVideoClip([video] + subtitle_clips).set_audio(audio)
+    final_video.write_videofile(str(output_file), codec="libx264", fps=60)
     
-    # Set new audio to the video
-    final_video = final_video.set_audio(audio)
-    
-    # Save output
-    final_video.write_videofile(str(output_file), codec="libx264", fps=24)
     print(f"Output saved: {output_file}")
 
 def main() -> None:
